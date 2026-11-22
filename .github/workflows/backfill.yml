@@ -1,0 +1,69 @@
+name: Backfill commits
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Startdatum (JJJJ-MM-TT)"
+        required: true
+        default: "2026-01-01"
+      end:
+        description: "Enddatum (JJJJ-MM-TT)"
+        required: true
+        default: "2026-11-21"
+      min:
+        description: "Min. Commits pro Tag"
+        default: "5"
+      max:
+        description: "Max. Commits pro Tag"
+        default: "10"
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Git-Identität setzen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          ID=$(gh api "users/$OWNER" --jq .id)
+          git config user.name  "$OWNER"
+          git config user.email "${ID}+${OWNER}@users.noreply.github.com"
+
+      - name: Rückdatierte Commits erstellen
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          MIN: ${{ inputs.min }}
+          MAX: ${{ inputs.max }}
+        run: |
+          WORDS=(update tweak refactor cleanup notes log tidy adjust polish sync)
+          d="$START"; total=0
+          while [[ "$d" < "$END" || "$d" == "$END" ]]; do
+            n=$(( MIN + RANDOM % (MAX - MIN + 1) ))
+            times=$(for i in $(seq 1 "$n"); do
+              printf '%02d:%02d:%02d\n' $((8 + RANDOM % 14)) $((RANDOM % 60)) $((RANDOM % 60))
+            done | sort)
+            i=0
+            for t in $times; do
+              i=$((i+1))
+              ts="$d $t +0000"
+              w=${WORDS[$RANDOM % ${#WORDS[@]}]}
+              mkdir -p logs
+              echo "- $ts $w #$i $RANDOM" >> "logs/${d:0:7}.md"
+              git add logs
+              GIT_AUTHOR_DATE="$ts" GIT_COMMITTER_DATE="$ts" git commit -q -m "$w: entry $i ($d)"
+              total=$((total+1))
+            done
+            d=$(date -u -d "$d + 1 day" +%F)
+          done
+          echo "$total Commits erstellt."
+
+      - name: Pushen
+        run: git push
